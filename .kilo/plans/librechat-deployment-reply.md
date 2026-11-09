@@ -94,3 +94,68 @@ After the first successful deploy, model lists and most UI flags can be managed 
 2. Apply the nginx.conf `/api` proxy fix and `server_name` changes.
 3. Run `docker compose -f deploy-compose.yml up -d` in `/opt/librechat`.
 4. Validate with the checklist, then share the Authentik issuer URL + group mapping if you want the `.env` OIDC block refined.
+
+---
+
+## Appendix: OpenRouter rerank with nvidia/nemotron-3.5-rerank-8b:free
+
+Use this to reorder retrieved documents by relevance to a query (e.g. for RAG/file-search result re-ranking in LibreChat).
+
+### 1. Get your API key
+
+Create an API key from your OpenRouter dashboard and set it as an environment variable:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+### 2. Make your first request
+
+Use `nvidia/nemotron-3.5-rerank-8b:free` with the OpenRouter rerank API:
+
+```python
+import requests
+import json
+
+response = requests.post(
+    url="https://openrouter.ai/api/v1/rerank",
+    headers={
+        "Authorization": "Bearer $OPENROUTER_API_KEY",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "<YOUR_SITE_URL>",     # Optional. Site URL for rankings on openrouter.ai.
+        "X-OpenRouter-Title": "<YOUR_SITE_NAME>", # Optional. Site title for rankings on openrouter.ai.
+    },
+    data=json.dumps({
+        "model": "nvidia/nemotron-3.5-rerank-8b:free",
+        "query": "a photograph of a cat",
+        # Documents can mix images and text. Images are remote URLs or base64 data URIs.
+        "documents": [
+            {"image": "https://upload.wikimedia.org/wikipedia/commons/3/3a/Cat03.jpg"},
+            {"text": "A fluffy cat sitting on a windowsill in the sun."},
+            {"text": "A street map of downtown Berlin."}
+        ],
+        "top_n": 3
+    })
+)
+
+results = response.json()
+for result in results["results"]:
+    document = result["document"]
+    source = document.get("image") or document.get("text")
+    print(f"Index: {result['index']}, Score: {result['relevance_score']}, Source: {source}")
+```
+
+### Endpoint reference
+
+| Item | Value |
+|---|---|
+| Method | `POST` |
+| URL | `https://openrouter.ai/api/v1/rerank` |
+| Authorization | `Bearer $OPENROUTER_API_KEY` |
+| Content-Type | `application/json` |
+| HTTP-Referer | Optional — your site URL, for OpenRouter rankings |
+| X-OpenRouter-Title | Optional — your site name, for OpenRouter rankings |
+| Model | `nvidia/nemotron-3.5-rerank-8b:free` |
+
+OpenRouter-specific headers (`HTTP-Referer`, `X-OpenRouter-Title`) are optional; setting them allows your app to appear on the OpenRouter leaderboards. For information about third-party SDKs and frameworks with OpenRouter, see the OpenRouter frameworks documentation.
+
